@@ -1,0 +1,21 @@
+# Dependências
+node_modules/
+
+# Variáveis de ambiente e segredos
+.env
+*.env
+.env.example
+
+# Sessão do WhatsApp (Credenciais e chaves)
+session/
+auth_info/
+*.session
+
+# Histórico local e logs
+logs/
+*.log
+database.json
+
+# Sistema
+.DS_Store
+Thumbs.db

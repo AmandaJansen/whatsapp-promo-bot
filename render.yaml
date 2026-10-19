@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: whatsapp-promo-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: AMAZON_ASSOCIATE_TAG
+        sync: false
+      - key: MERCADOLIVRE_AFFILIATE_TAG
+        sync: false
+      - key: SHOPEE_AFFILIATE_SUBID
+        sync: false
+      - key: WHATSAPP_CHANNEL_JID
+        sync: false
+      - key: ADMIN_PHONE_NUMBER
+        sync: false
+      - key: CRAWLER_CRON_SCHEDULE
+        value: "0 */2 * * *"
+      - key: MAX_DEALS_PER_RUN
+        value: "3"
+      - key: DELAY_BETWEEN_POSTS_SECONDS
+        value: "45"

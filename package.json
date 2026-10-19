@@ -1,0 +1,32 @@
+{
+  "name": "whatsapp-promo-bot",
+  "version": "1.0.0",
+  "description": "Bot automatizado para divulgação de ofertas em Canais do WhatsApp com suporte a afiliados (Amazon, Mercado Livre e Shopee)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "post": "node src/cli.js",
+    "crawler": "node src/crawler-runner.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "afiliados",
+    "promocoes",
+    "amazon",
+    "mercadolivre",
+    "shopee"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
