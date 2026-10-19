@@ -10,6 +10,7 @@ const config = require('./config');
 const { formatarMensagemPromocao } = require('./templates');
 const { marcarComoPostado } = require('./database');
 const { extrairInfoProduto } = require('./scraper');
+const { setQrCode, setPairingCode, setConnected } = require('./server');
 
 /**
  * Inicia a conexão com o WhatsApp via Baileys e configura escuta de comandos
@@ -30,6 +31,20 @@ async function conectarWhatsApp() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Se não estiver registrado e tiver telefone configurado, solicita código de pareamento numérico de 8 dígitos
+  if (!sock.authState.creds.registered && config.whatsapp.adminPhone) {
+    const cleanPhone = config.whatsapp.adminPhone.replace(/[^0-9]/g, '');
+    setTimeout(async () => {
+      try {
+        const code = await sock.requestPairingCode(cleanPhone);
+        console.log(`\n🔑 CÓDIGO DE PAREAMENTO (8 dígitos): ${code}\n`);
+        setPairingCode(code);
+      } catch (err) {
+        console.log('ℹ️ Código de pareamento numérico não solicitado, usando QR Code.');
+      }
+    }, 4000);
+  }
 
   // Escuta de mensagens para controle direto pelo celular (WhatsApp Privado)
   sock.ev.on('messages.upsert', async (m) => {
@@ -63,7 +78,7 @@ async function conectarWhatsApp() {
         const isLojaSuportada = /amazon|mercadolivre|shopee|amzn\.to|meli\.la|shp\.ee/i.test(urlAlvo);
         if (!isLojaSuportada) return;
 
-        // Extrai cupom se fornecido após a URL ou comando !cupom
+        // Extrai cupom se fornecido após a URL ou comando cupom: XYZ
         const cupomMatch = textoMensagem.match(/(?:cupom|code|código)[:\s]+([A-Z0-9_-]+)/i);
         const cupom = cupomMatch ? cupomMatch[1] : '';
 
@@ -91,12 +106,17 @@ async function conectarWhatsApp() {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        console.log('\n📲 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP:\n');
-        qrcode.generate(qr, { small: true });
-        console.log('\nAbra o WhatsApp > Aparelhos conectados > Conectar um aparelho.\n');
+        setQrCode(qr);
+        console.log('\n📲 QR CODE GERADO COM SUCESSO!');
+        console.log('👉 Acesse a URL pública do seu app no navegador para escanear a imagem nítida.');
+        // Também renderiza no terminal com small: false para melhorar visualização
+        try {
+          qrcode.generate(qr, { small: true });
+        } catch {}
       }
 
       if (connection === 'close') {
+        setConnected(false);
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         console.log(`🔌 Conexão encerrada (status: ${statusCode}). Reconectando: ${shouldReconnect}`);
@@ -110,6 +130,7 @@ async function conectarWhatsApp() {
         }
       } else if (connection === 'open') {
         console.log('✅ Bot conectado ao WhatsApp com sucesso!');
+        setConnected(true);
         resolve(sock);
       }
     });
