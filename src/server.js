@@ -5,6 +5,7 @@ const config = require('./config');
 let currentQr = null;
 let currentPairingCode = null;
 let isConnected = false;
+let availableChats = [];
 
 function setQrCode(qr) {
   currentQr = qr;
@@ -15,8 +16,11 @@ function setPairingCode(code) {
   currentPairingCode = code;
 }
 
-function setConnected(status) {
+function setConnected(status, chats = []) {
   isConnected = status;
+  if (chats && chats.length > 0) {
+    availableChats = chats;
+  }
   if (status) {
     currentQr = null;
     currentPairingCode = null;
@@ -24,7 +28,7 @@ function setConnected(status) {
 }
 
 /**
- * Inicia o servidor HTTP com página visual para escanear QR Code e Health Check
+ * Inicia o servidor HTTP com página visual para escanear QR Code, Health Check e Lista de Canais
  * @param {number} port
  */
 function iniciarServidorHttp(port = config.server.port) {
@@ -36,12 +40,13 @@ function iniciarServidorHttp(port = config.server.port) {
         status: isConnected ? 'connected' : 'waiting_qr',
         uptime: process.uptime(),
         service: 'WhatsApp Promo Bot',
+        channelConfigured: Boolean(config.whatsapp.channelJid),
         timestamp: new Date().toISOString()
       }));
       return;
     }
 
-    // Página Principal / Visualizador de QR Code e Pareamento
+    // Página Principal / Visualizador de QR Code, Pareamento e Canais
     if (req.url === '/' || req.url === '/qr') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
 
@@ -77,11 +82,33 @@ function iniciarServidorHttp(port = config.server.port) {
         </div>
       ` : '';
 
+      let chatsListHtml = '';
+      if (isConnected && availableChats.length > 0) {
+        chatsListHtml = `
+          <div style="margin-top: 24px; text-align: left; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 16px;">
+            <div style="font-size: 14px; font-weight: bold; color: #343a40; margin-bottom: 12px;">📋 Seus Canais e Grupos Encontrados:</div>
+            <div style="max-height: 200px; overflow-y: auto;">
+              ${availableChats.map(c => `
+                <div style="padding: 8px; border-bottom: 1px solid #dee2e6; font-size: 13px;">
+                  <b>${c.tipo === 'Canal' ? '📢' : '👥'} ${c.nome}</b><br/>
+                  <span style="color: #495057; font-family: monospace; font-size: 11px;">JID: ${c.jid}</span>
+                </div>
+              `).join('')}
+            </div>
+            <p style="font-size: 12px; color: #6c757d; margin-top: 10px;">
+              💡 Copie o <b>JID</b> do canal desejado e configure na variável <code>WHATSAPP_CHANNEL_JID</code> no seu <code>.env</code> ou Render.
+            </p>
+          </div>
+        `;
+      }
+
       const statusBadge = isConnected
         ? `<div style="background: #2b8a3e; color: #fff; padding: 12px 24px; border-radius: 30px; font-weight: bold; display: inline-block;">
              ✅ WhatsApp Conectado com Sucesso!
            </div>
-           <p style="color: #495057; margin-top: 16px;">O bot está ativo e divulgando promoções automaticamente.</p>`
+           <p style="color: #495057; margin-top: 16px;">O bot está ativo e pronto para divulgar promoções.</p>
+           ${config.whatsapp.channelJid ? `<p style="font-size: 13px; color: #2b8a3e;">Canal configurado: <code>${config.whatsapp.channelJid}</code></p>` : `<p style="font-size: 13px; color: #e03131; font-weight: bold;">⚠️ Nenhum canal configurado em WHATSAPP_CHANNEL_JID ainda.</p>`}
+           ${chatsListHtml}`
         : (currentQr || currentPairingCode
             ? `<div style="margin-bottom: 20px;">
                  <span style="background: #f59f00; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: bold;">
@@ -97,12 +124,12 @@ function iniciarServidorHttp(port = config.server.port) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WhatsApp Promo Bot - Conexão</title>
+  <title>WhatsApp Promo Bot - Painel</title>
   ${!isConnected ? '<meta http-equiv="refresh" content="5">' : ''}
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: #f8f9fa;
+      background: #f1f3f5;
       color: #212529;
       display: flex;
       align-items: center;
@@ -118,7 +145,7 @@ function iniciarServidorHttp(port = config.server.port) {
       border-radius: 16px;
       box-shadow: 0 10px 25px rgba(0,0,0,0.05);
       text-align: center;
-      max-width: 440px;
+      max-width: 480px;
       width: 100%;
     }
     h1 {
@@ -131,6 +158,12 @@ function iniciarServidorHttp(port = config.server.port) {
       font-size: 14px;
       color: #868e96;
       margin-bottom: 24px;
+    }
+    code {
+      background: #e9ecef;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
     }
   </style>
 </head>
@@ -152,7 +185,7 @@ function iniciarServidorHttp(port = config.server.port) {
   });
 
   server.listen(port, () => {
-    console.log(`🌐 Painel Web do QR Code ativo na porta ${port} (Acesse pelo navegador)`);
+    console.log(`🌐 Painel Web do QR Code ativo na porta ${port}`);
   });
 
   return server;

@@ -13,6 +13,80 @@ const { extrairInfoProduto } = require('./scraper');
 const { setQrCode, setPairingCode, setConnected } = require('./server');
 
 /**
+ * Converte links de canal (whatsapp.com/channel/XYZ) em JID real (@newsletter)
+ * @param {any} sock
+ * @param {string} jidOuUrl
+ * @returns {Promise<string>}
+ */
+async function resolverJidDestino(sock, jidOuUrl) {
+  if (!jidOuUrl) return '';
+
+  const clean = jidOuUrl.trim();
+
+  // Se já for um JID válido (@newsletter, @g.us ou @s.whatsapp.net)
+  if (clean.includes('@newsletter') || clean.includes('@g.us') || clean.includes('@s.whatsapp.net')) {
+    return clean;
+  }
+
+  // Se for um link de canal do WhatsApp
+  if (clean.includes('whatsapp.com/channel/')) {
+    try {
+      const inviteCode = clean.split('whatsapp.com/channel/')[1].split('/')[0].split('?')[0];
+      if (typeof sock.newsletterMetadata === 'function') {
+        const metadata = await sock.newsletterMetadata('invite', inviteCode);
+        if (metadata && metadata.id) {
+          console.log(`📡 [Canal] Link resolvido para o JID: ${metadata.id}`);
+          return metadata.id;
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Não foi possível resolver o link do canal automaticamente:', err.message);
+    }
+  }
+
+  return clean;
+}
+
+/**
+ * Busca e lista todos os Canais e Grupos disponíveis na conta conectada
+ * @param {any} sock
+ * @returns {Promise<Array<{ nome: string, jid: string, tipo: string }>>}
+ */
+async function listarCanaisEGrupos(sock) {
+  const lista = [];
+
+  try {
+    // 1. Busca Grupos
+    if (typeof sock.groupFetchAllParticipating === 'function') {
+      const grupos = await sock.groupFetchAllParticipating();
+      for (const [jid, info] of Object.entries(grupos)) {
+        lista.push({
+          nome: info.subject || 'Grupo sem nome',
+          jid,
+          tipo: 'Grupo'
+        });
+      }
+    }
+
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📋 CANAIS E GRUPOS DISPONÍVEIS NA SUA CONTA:');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    if (lista.length === 0) {
+      console.log('ℹ️ Nenhum grupo encontrado ou permissão pendente.');
+    } else {
+      lista.forEach((item) => {
+        console.log(`• [${item.tipo}] ${item.nome} -> JID: ${item.jid}`);
+      });
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  } catch (err) {
+    console.warn('⚠️ Aviso ao listar grupos/canais:', err.message);
+  }
+
+  return lista;
+}
+
+/**
  * Inicia a conexão com o WhatsApp via Baileys e configura escuta de comandos
  * @returns {Promise<any>}
  */
@@ -50,7 +124,7 @@ async function conectarWhatsApp() {
   sock.ev.on('messages.upsert', async (m) => {
     try {
       const msg = m.messages[0];
-      if (!msg || !msg.message || msg.key.fromMe && !config.whatsapp.adminPhone) return;
+      if (!msg || !msg.message) return;
 
       const remoteJid = msg.key.remoteJid;
       const textoMensagem = msg.message.conversation ||
@@ -66,6 +140,14 @@ async function conectarWhatsApp() {
       const isAutorizado = (adminConfig && senderPhone.includes(adminConfig)) || msg.key.fromMe;
 
       if (!isAutorizado) return;
+
+      // Comando de teste !ping ou !teste
+      if (textoMensagem.toLowerCase() === '!ping' || textoMensagem.toLowerCase() === '!teste') {
+        await sock.sendMessage(remoteJid, {
+          text: `🤖 *PromoBot Online!*\n\n• Canal configurado: \`${config.whatsapp.channelJid || 'Não configurado'}\`\n• Envie o link de um produto aqui para postar!`
+        });
+        return;
+      }
 
       // Verifica se a mensagem contém um link de loja suportada
       const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -109,7 +191,6 @@ async function conectarWhatsApp() {
         setQrCode(qr);
         console.log('\n📲 QR CODE GERADO COM SUCESSO!');
         console.log('👉 Acesse a URL pública do seu app no navegador para escanear a imagem nítida.');
-        // Também renderiza no terminal com small: false para melhorar visualização
         try {
           qrcode.generate(qr, { small: true });
         } catch {}
@@ -130,7 +211,24 @@ async function conectarWhatsApp() {
         }
       } else if (connection === 'open') {
         console.log('✅ Bot conectado ao WhatsApp com sucesso!');
-        setConnected(true);
+
+        // Busca canais e grupos da conta
+        const chats = await listarCanaisEGrupos(sock);
+        setConnected(true, chats);
+
+        // Envia mensagem de boas-vindas para o número do admin (se configurado)
+        if (config.whatsapp.adminPhone) {
+          const adminJid = `${config.whatsapp.adminPhone.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+          try {
+            await sock.sendMessage(adminJid, {
+              text: `🤖 *PromoBot Conectado com Sucesso!*\n\nO bot está ativo e pronto. Envie o link de qualquer produto (Amazon, Mercado Livre ou Shopee) aqui neste chat para divulgar no canal!`
+            });
+            console.log('💬 Mensagem de confirmação enviada para seu WhatsApp!');
+          } catch (e) {
+            console.log('ℹ️ Não foi possível enviar mensagem privada inicial:', e.message);
+          }
+        }
+
         resolve(sock);
       }
     });
@@ -138,26 +236,36 @@ async function conectarWhatsApp() {
 }
 
 /**
- * Envia uma mensagem de promoção para o canal ou grupo configurado
+ * Envia uma mensagem de promoção para o canal ou grupo configurado com suporte a fallback
  * @param {any} sock
  * @param {Object} produto
  * @param {string} [destinoJid]
  */
 async function enviarPromocao(sock, produto, destinoJid = config.whatsapp.channelJid) {
-  if (!destinoJid) {
-    throw new Error('JID de destino do WhatsApp não configurado no arquivo .env (WHATSAPP_CHANNEL_JID).');
+  const jidFinal = await resolverJidDestino(sock, destinoJid);
+
+  if (!jidFinal || jidFinal.includes('XXXXXXXXXXXX')) {
+    console.error('\n⚠️ [Atenção] JID do Canal do WhatsApp inválido ou não configurado!');
+    console.log('👉 Acesse a página web do seu app ou veja a lista acima para copiar o JID correto do seu canal.\n');
+    throw new Error('JID do canal não configurado no .env (WHATSAPP_CHANNEL_JID).');
   }
 
   const texto = formatarMensagemPromocao(produto);
 
   try {
+    // Tenta enviar com imagem se houver
     if (produto.imagem) {
-      await sock.sendMessage(destinoJid, {
-        image: { url: produto.imagem },
-        caption: texto
-      });
+      try {
+        await sock.sendMessage(jidFinal, {
+          image: { url: produto.imagem },
+          caption: texto
+        });
+      } catch (imgError) {
+        console.warn('⚠️ Falha ao carregar imagem externa. Enviando apenas o texto com link...');
+        await sock.sendMessage(jidFinal, { text: texto });
+      }
     } else {
-      await sock.sendMessage(destinoJid, { text: texto });
+      await sock.sendMessage(jidFinal, { text: texto });
     }
 
     // Registra no banco de dados local para não duplicar
@@ -167,14 +275,16 @@ async function enviarPromocao(sock, produto, destinoJid = config.whatsapp.channe
       preco: produto.preco
     });
 
-    console.log(`🚀 [Sucesso] Promoção postada: "${produto.titulo.substring(0, 40)}..."`);
+    console.log(`🚀 [Sucesso] Promoção postada no canal (${jidFinal}): "${produto.titulo.substring(0, 40)}..."`);
   } catch (error) {
-    console.error(`❌ [Erro] Falha ao enviar mensagem para ${destinoJid}:`, error.message);
+    console.error(`❌ [Erro] Falha ao enviar mensagem para ${jidFinal}:`, error.message);
     throw error;
   }
 }
 
 module.exports = {
   conectarWhatsApp,
-  enviarPromocao
+  enviarPromocao,
+  resolverJidDestino,
+  listarCanaisEGrupos
 };
